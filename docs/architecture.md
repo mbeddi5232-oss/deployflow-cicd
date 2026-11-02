@@ -12,14 +12,14 @@ flowchart LR
     Actions --> Tests[pytest API tests]
     Actions --> Build[Docker image build]
     Build --> Scan[Trivy vulnerability scan]
-    Scan -->|versioned image| GHCR[GitHub Container Registry]
+    Scan -->|trusted main push only| GHCR[GHCR sha-commit image]
     GHCR -->|docker compose pull| Host[Deployment host]
     Host --> API[FastAPI Task API]
     Smoke[Smoke test] -->|GET /health and CRUD check| API
     User[API client] -->|HTTP /health and /tasks| API
 ```
 
-The local container build, Compose deployment, health check, and smoke-test path are implemented in M2. GitHub Actions quality checks, image builds, and Trivy scanning are implemented in M3. GHCR publishing and remote deployment remain target components for M4.
+The local container build, Compose deployment, health check, and smoke-test path are implemented in M2. GitHub Actions quality checks, image builds, and Trivy scanning are implemented in M3. M4 implements trusted-branch GHCR publishing, explicit version deployment, post-deployment smoke tests, and rollback; actual remote publication and deployment require approval.
 
 ## Runtime Design
 
@@ -56,6 +56,14 @@ The workflow grants only `contents: read`, does not persist checkout credentials
 
 Trivy scans OS and Python packages using vulnerability data available at workflow runtime. The gate fails for fixable `HIGH` or `CRITICAL` findings, ignores unfixed findings, and reports results in the job log. This policy prioritizes actionable release-blocking risk while keeping the MVP operational; it must be reconsidered before production use.
 
+## Publishing, Deployment, and Rollback
+
+The publish job is gated at job level to pushes on `refs/heads/main` and depends on successful quality and container-security jobs. Only that job receives `packages: write`; pull-request jobs retain read-only repository access and cannot reach registry authentication. The publish candidate is rebuilt, scanned, labeled with its source and revision, and tagged as `sha-<40-character-commit>`.
+
+Before pushing, the workflow authenticates with the repository-scoped `GITHUB_TOKEN` and queries GHCR. An existing tag causes a hard failure, and ambiguous registry errors fail closed. No mutable branch or `latest` tag is published.
+
+Deployment sets `DEPLOYFLOW_IMAGE` to one explicit GHCR commit tag, pulls it, and starts Compose with `--no-build`. Health and full CRUD smoke tests run before the version is accepted. Rollback supplies the previous known-good tag to the identical deployment path, so rollback never rebuilds source. Task data remains ephemeral and is lost whenever a container is replaced.
+
 ## Design Decisions
 
 ### Single service
@@ -76,7 +84,7 @@ Stored task models are immutable. Updates create a new value, reducing accidenta
 
 ### Versioned container images
 
-M4 will publish immutable version tags to GHCR. Deployments will reference an explicit tag so rollback means redeploying a previously verified image rather than rebuilding source.
+M4 publishes only commit-derived tags to GHCR. Deployments reference an explicit tag so rollback means redeploying a previously verified image rather than rebuilding source. Workflow checks prevent accidental tag reuse; package administrators must also avoid manual overwrites.
 
 ### Container health and smoke testing
 

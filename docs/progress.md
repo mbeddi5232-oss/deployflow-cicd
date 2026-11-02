@@ -4,7 +4,7 @@ Last updated: 2026-11-02
 
 ## Current status
 
-M1 and M2 are complete. M3 is implemented and locally verified; its first GitHub-hosted Actions run requires an approved push.
+M1 through M3 are complete. M4 is implemented and locally verified; GHCR publication, a deployment from the registry, and rollback between published versions require an approved push and remote verification.
 
 ## Completed work
 
@@ -29,6 +29,11 @@ M1 and M2 are complete. M3 is implemented and locally verified; its first GitHub
 - Limited workflow permissions to `contents: read`, disabled persisted checkout credentials, and pinned every external action to a full commit SHA.
 - Defined a blocking Trivy policy for fixable `HIGH` and `CRITICAL` OS and library vulnerabilities.
 - Upgraded FastAPI to 0.162 and the test client to `httpx2` after Trivy identified three fixable Starlette vulnerabilities in the previous dependency line.
+- Added a trusted `main` publishing job that runs only after quality and container-security jobs succeed.
+- Limited package write permission to the publishing job; pull-request workflows remain read-only and never authenticate to GHCR.
+- Added full-commit `sha-<40-character-commit>` image tags, OCI source and revision labels, an exact-candidate Trivy scan, and fail-closed tag-reuse protection.
+- Added explicit image selection to Compose and a deployment script that pulls one immutable version, starts it with `--no-build`, waits for health, and runs the complete CRUD smoke test.
+- Documented GHCR access, version selection, deployment failure inspection, known-good version recording, and rollback without rebuilding source.
 
 ## Environment inspection
 
@@ -164,12 +169,63 @@ Checks that require GitHub Actions and were not run locally:
 - GitHub cache behavior and displayed job/status-check results.
 - End-to-end confirmation that repository Actions settings allow the pinned Aqua Security action.
 
+## M4 verification results
+
+The publishing and deployment implementation was reviewed for trusted-ref isolation, least-privilege permissions, immutable version selection, fail-closed behavior, and rollback reproducibility.
+
+Commands executed locally on 2026-11-02:
+
+```powershell
+docker run --rm --volume "${PWD}:/repo:ro" --workdir /repo rhysd/actionlint:1.7.12 -color
+docker run --rm --volume "${PWD}:/mnt:ro" koalaman/shellcheck-alpine:v0.11.0 shellcheck /mnt/scripts/deploy.sh
+docker run --rm --volume "${PWD}:/mnt:ro" --workdir /mnt alpine:3.22 sh -n scripts/deploy.sh
+docker compose config --quiet
+$env:DEPLOYFLOW_IMAGE = "ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-2862a9e01c97c171be2637298043d696dfef0d93"
+docker compose config --quiet
+docker run --rm --volume "${PWD}:/workspace" --workdir /workspace python:3.12-slim sh -c "python -m pip install --disable-pip-version-check --quiet -e '.[dev]' && python -m ruff check . && python -m ruff format --check . && python -m pytest"
+docker build --pull --tag deployflow-ci:local-m4 .
+docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 image --exit-code 1 --ignore-unfixed --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL deployflow-ci:local-m4
+docker compose up --detach --no-build --force-recreate --wait --wait-timeout 60
+docker compose run --rm --no-deps --volume "${PWD}\scripts:/smoke:ro" --env DEPLOYFLOW_BASE_URL=http://api:8000 api python /smoke/smoke_test.py
+docker compose down
+```
+
+Verified results:
+
+```text
+actionlint 1.7.12: passed with no findings
+ShellCheck 0.11.0: passed with no findings
+POSIX shell syntax: passed
+Invalid or abbreviated image reference: rejected with exit code 2
+Default Compose configuration: valid
+Explicit immutable-image Compose configuration: valid
+Ruff lint: passed
+Ruff format check: 6 files already formatted
+pytest: 5 passed in 0.76s
+Docker build: passed
+Final M4 image: sha256:d5ebbad18d20ed8bb36250bdee7b1faa0bda3a2b5f929f8699df989f6cd28596
+Trivy 0.76.1: passed the fixable HIGH/CRITICAL gate
+Explicit-image deployment: healthy
+Health and CRUD smoke test: passed
+Compose shutdown: passed
+```
+
+The explicit deployment test used a local image retagged with the required GHCR commit-reference format. It did not contact GHCR, publish an image, or perform a remote deployment.
+
+Remote verification still required after approval:
+
+- Confirm pull-request runs skip registry authentication and publishing.
+- Confirm a successful trusted `main` run publishes exactly one full-commit tag.
+- Confirm the package is linked to the repository and has the intended visibility.
+- Pull the published tag on a deployment host and pass health and CRUD smoke tests.
+- Deploy a newer published version, then roll back to the recorded known-good tag and pass the same smoke tests.
+
 ## Blockers
 
 - Host-native development still requires Python 3.12+ with the development dependencies installed. Container-based verification is available because Docker Desktop is running.
 - Trivy is not installed on the Windows host; the pinned containerized Trivy 0.76.1 scan passed locally.
 - GitHub CLI is optional for local development but would simplify authenticated repository and workflow inspection in later milestones.
-- GitHub-hosted workflow status remains pending until the user approves a commit and push.
+- M4 GitHub-hosted publishing and deployment verification remain pending until the user approves a push and remote actions.
 
 ## Next verification commands
 

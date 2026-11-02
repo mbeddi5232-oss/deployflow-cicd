@@ -1,6 +1,6 @@
 services:
   api:
-    image: deployflow-api:local
+    image: ${DEPLOYFLOW_IMAGE:-deployflow-api:local}
     build:
       context: .
       dockerfile: Dockerfile

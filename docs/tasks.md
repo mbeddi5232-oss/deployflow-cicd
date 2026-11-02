@@ -37,12 +37,13 @@ Acceptance criteria: one reproducible workflow provides lint, test, build, and v
 
 ## M4 — Versioned publishing, deployment, and rollback
 
-- [ ] Publish immutable commit and release tags to GHCR from trusted refs only.
-- [ ] Document required repository settings and workflow permissions.
-- [ ] Add a reproducible deployment procedure using an explicit image tag.
-- [ ] Run post-deployment health and CRUD smoke tests.
-- [ ] Document and verify rollback to a known-good image tag.
-- [ ] Require approval before any real push, publication, or remote deployment.
+- [x] Implement immutable commit-tag publishing to GHCR from trusted `main` pushes only.
+- [x] Document required repository settings and workflow permissions.
+- [x] Add a reproducible deployment procedure using an explicit image tag.
+- [x] Run local health and CRUD smoke tests through the explicit-image deployment path.
+- [x] Document rollback to a known-good image tag.
+- [x] Require approval before any real push, publication, or remote deployment.
+- [ ] Verify GHCR publication, remote smoke tests, and rollback after explicit approval.
 
 Acceptance criteria: an authorized release produces a traceable GHCR image, deployment consumes an immutable version, smoke tests validate it, and rollback does not rebuild source.
 

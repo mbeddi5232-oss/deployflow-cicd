@@ -4,7 +4,7 @@ DeployFlow is a recruiter-ready CI/CD portfolio project built around a minimal T
 
 ## Current scope
 
-M1 through M3 provide:
+M1 through M4 provide:
 
 - A typed FastAPI service with OpenAPI documentation.
 - A `/health` endpoint for operational checks.
@@ -15,6 +15,7 @@ M1 through M3 provide:
 - Docker Compose deployment with an application health check and runtime hardening.
 - Dependency-free health and CRUD smoke tests against the deployed container.
 - GitHub Actions CI for Ruff, pytest, container builds, and Trivy vulnerability scanning.
+- Trusted-branch GHCR publishing with immutable commit tags, explicit deployment, smoke verification, and rollback.
 - Architecture, milestone, and progress documentation.
 
 Task data is process-local and is reset when the service restarts. Persistence is outside the MVP scope.
@@ -119,13 +120,31 @@ Set `DEPLOYFLOW_BASE_URL` to target a non-default host or port.
 1. `Ruff and pytest` installs the development dependencies, checks lint and formatting, and runs the API tests.
 2. `Container build and Trivy scan` builds a commit-tagged local image and scans it without logging in, publishing, or pushing.
 
-Workflow permissions are limited to `contents: read`. Checkout credentials are not persisted, jobs have explicit timeouts, duplicate runs are cancelled, and every external action is pinned to a full commit SHA.
+Workflow permissions default to `contents: read`. Checkout credentials are not persisted, jobs have explicit timeouts, duplicate runs are cancelled, and every external action is pinned to a full commit SHA. Only the trusted publishing job adds `packages: write`.
 
 ### Vulnerability policy
 
 Trivy 0.76.1 scans operating-system and Python package vulnerabilities in the final image. CI fails when a fixable `HIGH` or `CRITICAL` vulnerability is present. Unfixed findings do not block this MVP because no actionable upgrade exists, but they remain a maintenance concern and the policy should be reviewed before a production release. `LOW`, `MEDIUM`, and `UNKNOWN` findings are outside the blocking gate.
 
-The workflow does not publish images. GHCR publication belongs to M4 and requires explicit approval.
+Pull requests build and scan images but never authenticate to GHCR. After quality and security jobs pass, a push to `main` may publish exactly one `sha-<full-commit>` tag. The publishing job scans the exact candidate again, refuses to overwrite an existing tag, and never creates `latest`.
+
+## Versioned deployment and rollback
+
+Deployment requires an explicit GHCR commit tag:
+
+```text
+ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-<40-character-commit>
+```
+
+On a Docker host, deploy and verify that version with:
+
+```sh
+sh scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-<40-character-commit>
+```
+
+The script validates the reference, pulls it, recreates the service without building local source, waits for `/health`, and executes the complete CRUD smoke test. To roll back, run the same command with the last recorded known-good commit tag.
+
+See [docs/deployment.md](docs/deployment.md) for authentication, verification, failure handling, and the complete rollback procedure. No deployment uses `latest`.
 
 ## Delivery roadmap
 
