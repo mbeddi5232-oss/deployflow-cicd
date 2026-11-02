@@ -20,7 +20,7 @@ The workflow labels the image with its source repository so the first workflow p
 - Private packages require the deployment host to authenticate with a credential that has `read:packages` access.
 - Never store a GHCR token in this repository or a Compose file.
 
-The first approved publication must confirm that the package is linked to this repository and has the intended visibility. No remote package setting is changed automatically by this project.
+Anonymous pulls and the repository package page were verified on 2026-11-02. No remote package setting is changed automatically by this project; package linkage and visibility should still be reviewed after repository or ownership changes.
 
 ## Deploy an Explicit Version
 
@@ -76,18 +76,22 @@ docker inspect "$(docker compose ps --quiet api)" --format '{{.Config.Image}}'
 
 Because the MVP repository is in-memory, replacing the container discards all task data. A persistent datastore and backup/restore procedure are required before production use.
 
-## Two-Version Rollback Test Plan
+## Verified Two-Version Rollback
 
-The current known-good baseline is:
+The published artifacts used in the local rollback exercise were:
 
-```text
-Image: ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
-Digest: sha256:607995610eac0044361280e96296df68a472ef742718c83b9a6cfa03a25bd755
-```
+| Role | Image tag | Registry digest |
+| --- | --- | --- |
+| Known-good baseline | `sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5` | `sha256:607995610eac0044361280e96296df68a472ef742718c83b9a6cfa03a25bd755` |
+| Candidate | `sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848` | `sha256:d672768378b6d8e86863d2de634d76fed57b645860040c28f7a2b4711a343bac` |
 
-A genuine rollback test requires a second image produced by the trusted `main` workflow from a different approved commit. A local retag, an abbreviated commit, or two tags resolving to the same digest does not qualify.
+Both images were produced by successful trusted `main` workflows. Their OCI revision labels matched their full commit tags and their registry digests were distinct. The local sequence baseline → candidate → baseline passed container health, host health, and the complete CRUD smoke test at every stage. Compose resources were removed afterward. The detailed commands and results are preserved in `docs/progress.md`.
 
-After a separate approval to push and publish the candidate commit:
+## Repeat the Rollback Test Safely
+
+A future genuine rollback test requires two images produced by the trusted `main` workflow from different approved commits. A local retag, an abbreviated commit, or two tags resolving to the same digest does not qualify.
+
+After a separate approval to push and publish a candidate commit:
 
 1. Confirm both full-commit tags exist in GHCR.
 2. Pull both images and verify each OCI revision label equals its tag's commit.
@@ -111,7 +115,21 @@ docker image inspect "$baseline_image" --format '{{index .Config.Labels "org.ope
 docker image inspect "$candidate_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}} {{index .RepoDigests 0}}'
 ```
 
-Do not proceed if a tag is missing, a revision label does not match, the digests are equal, or either image has not passed its trusted CI security gate. Publishing the candidate and any remote deployment require explicit approval.
+Do not proceed if a tag is missing, a revision label does not match, the digests are equal, or either image has not passed its trusted CI security gate. Publishing a future candidate and any remote deployment require explicit approval.
+
+## Troubleshooting
+
+| Failure | Diagnostic or action |
+| --- | --- |
+| Image reference rejected before pull | Use lowercase `ghcr.io/<owner>/<image>:sha-<40-character-commit>` syntax |
+| `manifest unknown` | Confirm the full commit tag exists in the successful publishing run and GHCR package |
+| GHCR returns `denied` | Confirm public visibility or authenticate the host with `read:packages`; never save the token in this repository |
+| Compose validation fails | Run `docker compose config` and inspect `DEPLOYFLOW_IMAGE` and `DEPLOYFLOW_PORT` |
+| API never becomes healthy | Run `docker compose ps` and `docker compose logs --tail 100 api` |
+| Smoke test fails after startup | Do not accept the version; preserve logs and redeploy the recorded known-good tag |
+| Port 8000 is occupied | Set `DEPLOYFLOW_PORT` to another loopback port before deployment |
+| Git for Windows has no `sh` on `PATH` | Invoke `C:\Program Files\Git\bin\sh.exe` explicitly as documented above |
+| Rollback loses task data | Expected for this in-memory MVP; production requires persistent storage and backup/restore |
 
 ## Stop the Deployment
 

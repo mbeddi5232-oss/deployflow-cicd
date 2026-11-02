@@ -1,4 +1,4 @@
-ARG PYTHON_IMAGE=python:3.12.16-slim-bookworm@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+ARG PYTHON_IMAGE=python:3.12.16-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337
 
 FROM ${PYTHON_IMAGE} AS builder
 

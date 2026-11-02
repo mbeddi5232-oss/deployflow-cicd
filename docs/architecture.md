@@ -5,21 +5,25 @@
 DeployFlow is intentionally a single-service application. The Task API provides a small, testable workload while the portfolio project demonstrates the delivery controls around it.
 
 ```mermaid
-flowchart LR
-    Developer[Developer] -->|git push / pull request| GitHub[GitHub repository]
-    GitHub --> Actions[GitHub Actions]
-    Actions --> Lint[Ruff lint and format checks]
-    Actions --> Tests[pytest API tests]
-    Actions --> Build[Docker image build]
-    Build --> Scan[Trivy vulnerability scan]
-    Scan -->|trusted main push only| GHCR[GHCR sha-commit image]
-    GHCR -->|docker compose pull| Host[Deployment host]
-    Host --> API[FastAPI Task API]
-    Smoke[Smoke test] -->|GET /health and CRUD check| API
-    User[API client] -->|HTTP /health and /tasks| API
+flowchart TB
+    Developer[Developer] -->|pull request or push| Repository[GitHub repository]
+    Repository --> Quality[Ruff formatting, lint, and pytest]
+    Quality -->|success| Container[Build production image]
+    Container --> Scan[Trivy vulnerability gate]
+    Scan -->|pull request: report only| CIResult[CI result]
+    Scan -->|trusted main push only| Publish[Rebuild and rescan publish candidate]
+    Publish -->|sha-full-commit tag| GHCR[GitHub Container Registry]
+    Operator[Deployment operator] -->|select exact image version| Deploy[deploy.sh]
+    GHCR -->|docker compose pull| Deploy
+    Deploy -->|no local build| Compose[Hardened Docker Compose service]
+    Compose --> API[FastAPI Task API]
+    Deploy --> Smoke[Health and CRUD smoke test]
+    Smoke --> API
+    Client[API client] -->|HTTP /health and /tasks| API
+    Operator -->|select known-good tag| Deploy
 ```
 
-The local container build, Compose deployment, health check, and smoke-test path are implemented in M2. GitHub Actions quality checks, image builds, and Trivy scanning are implemented in M3. M4 implements trusted-branch GHCR publishing, explicit version deployment, post-deployment smoke tests, and rollback; actual remote publication and deployment require approval.
+M1 through M4 implement the complete path shown above. The verified M4 exercise deployed the baseline image, replaced it with a distinct candidate image, and restored the baseline through the same deployment path. Remote-host deployment remains outside the approved scope; the verified exercise ran locally against real GHCR artifacts.
 
 ## Runtime Design
 
@@ -50,9 +54,9 @@ The runtime process uses UID/GID `10001`, not root. Compose binds the API only t
 
 ## Continuous Integration
 
-GitHub Actions runs on pull requests and pushes to `main`. The quality job executes Ruff lint, Ruff formatting verification, and pytest on Python 3.12. The container-security job runs only after quality succeeds, builds the same Dockerfile with a commit-specific local tag, and scans the resulting image with Trivy. No CI step authenticates to a registry or publishes an image.
+GitHub Actions runs on pull requests and pushes to `main`. The quality job executes Ruff lint, Ruff formatting verification, and pytest on Python 3.12. The container-security job runs only after quality succeeds, builds the same Dockerfile with a commit-specific local tag, and scans the resulting image with Trivy. Pull requests stop after this read-only evidence path. A separate publish job is eligible only for trusted pushes to `main` after both jobs succeed.
 
-The workflow grants only `contents: read`, does not persist checkout credentials, and pins all external actions to immutable full commit SHAs. Fixed `ubuntu-24.04` runners, explicit tool versions, job timeouts, and concurrency cancellation reduce environmental drift and wasted runner time.
+The workflow defaults to `contents: read`, does not persist checkout credentials, and pins all external actions to immutable full commit SHAs. Only the publish job adds `packages: write`. Fixed `ubuntu-24.04` runners, explicit tool versions, job timeouts, and concurrency cancellation reduce environmental drift and wasted runner time.
 
 Trivy scans OS and Python packages using vulnerability data available at workflow runtime. The gate fails for fixable `HIGH` or `CRITICAL` findings, ignores unfixed findings, and reports results in the job log. This policy prioritizes actionable release-blocking risk while keeping the MVP operational; it must be reconsidered before production use.
 
@@ -63,6 +67,8 @@ The publish job is gated at job level to pushes on `refs/heads/main` and depends
 Before pushing, the workflow authenticates with the repository-scoped `GITHUB_TOKEN` and queries GHCR. An existing tag causes a hard failure, and ambiguous registry errors fail closed. No mutable branch or `latest` tag is published.
 
 Deployment sets `DEPLOYFLOW_IMAGE` to one explicit GHCR commit tag, pulls it, and starts Compose with `--no-build`. Health and full CRUD smoke tests run before the version is accepted. Rollback supplies the previous known-good tag to the identical deployment path, so rollback never rebuilds source. Task data remains ephemeral and is lost whenever a container is replaced.
+
+Verified evidence is recorded in `docs/progress.md`. GitHub Actions run `41494769554` completed all three jobs successfully. GHCR exposed two images with distinct digests and revision labels matching their commit tags, and the local baseline → candidate → baseline sequence passed health and CRUD checks at every stage.
 
 ## Design Decisions
 
@@ -96,4 +102,8 @@ The image defines the non-root identity; Compose supplies host-specific runtime 
 
 ### Security boundary
 
-No secret belongs in the image or repository. GitHub authentication will use repository-provided tokens with least-privilege workflow permissions. Trivy will scan the final image before publication or deployment.
+No secret belongs in the image or repository. GitHub publishing uses the repository-provided `GITHUB_TOKEN` with job-scoped least-privilege permissions. Pull requests cannot reach registry authentication or publishing. Trivy scans both the CI image and the exact publish candidate before a trusted push reaches GHCR.
+
+### Deliberate exclusions
+
+The MVP has no persistent database, authentication, TLS termination, multi-host scheduler, observability stack, image signing, SBOM publication, or provenance attestation. These are documented evolution paths rather than hidden assumptions. The single service and Compose deployment are intentional until scale, availability, or compliance requirements justify additional infrastructure.

@@ -4,7 +4,7 @@ Last updated: 2026-11-02
 
 ## Current status
 
-M1 through M3 are complete. The M4 image is published and its exact commit tag has been pulled, deployed locally, and smoke-tested successfully. The deployment script is verified under Git for Windows and Linux shells. A genuine rollback test remains blocked until a second immutable version is published with approval.
+M1 through M5 are implemented and locally verified. M4 evidence includes two distinct GHCR images, explicit-version deployment, health and CRUD smoke tests, and rollback to the known-good baseline. M5 completes the recruiter-facing documentation, evidence traceability, security review, troubleshooting guidance, and final verification without fabricated screenshots or results.
 
 ## Completed work
 
@@ -271,20 +271,110 @@ Both deployments used the exact published e35f639 commit tag
 Both Compose projects were removed successfully after verification
 ```
 
-The two-version rollback procedure is documented in `docs/deployment.md`. It requires a separately approved commit and trusted GHCR publication, matching OCI revision labels, and two distinct registry digests. No second image was published and no rollback was executed during this work.
+The two-version rollback procedure is documented in `docs/deployment.md`. At this verification point, the first image was the only published version, so no rollback was claimed. The later approved push produced the second image used in the verified rollback sequence below.
+
+### Two-version GHCR rollback verification
+
+GitHub Actions run `41494769554` for commit `a7f2b2437c8eba0daa7a4ef29bac46301d7df848` was monitored to completion on 2026-11-02. The Ruff and pytest, container build and Trivy scan, and immutable GHCR publishing jobs all completed with conclusion `success`.
+
+Commands executed locally:
+
+```powershell
+Invoke-RestMethod -UseBasicParsing -Headers $githubHeaders -Uri "https://api.github.com/repos/mbeddi5232-oss/deployflow-cicd/actions/runs/41494769554/jobs?per_page=100"
+Invoke-RestMethod -UseBasicParsing -Headers $ghcrHeaders -Uri "https://ghcr.io/v2/mbeddi5232-oss/deployflow-cicd/tags/list"
+docker pull ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+docker pull ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848
+docker image inspect ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+docker image inspect ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848
+& "C:\Program Files\Git\bin\sh.exe" scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+& "C:\Program Files\Git\bin\sh.exe" scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848
+& "C:\Program Files\Git\bin\sh.exe" scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+docker compose down
+```
+
+Published image evidence:
+
+| Role | Commit tag | Registry digest | OCI revision label |
+| --- | --- | --- | --- |
+| Baseline | `sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5` | `sha256:607995610eac0044361280e96296df68a472ef742718c83b9a6cfa03a25bd755` | `e35f6393d6be2157ab9efcfa3a2c0a6527364eb5` |
+| Candidate | `sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848` | `sha256:d672768378b6d8e86863d2de634d76fed57b645860040c28f7a2b4711a343bac` | `a7f2b2437c8eba0daa7a4ef29bac46301d7df848` |
+
+Verified deployment results:
+
+```text
+Baseline deployment: exact tag and digest confirmed; container healthy; host health passed; CRUD smoke passed
+Candidate deployment: exact tag and digest confirmed; container healthy; host health passed; CRUD smoke passed
+Rollback to baseline: exact baseline tag and digest confirmed; container healthy; host health passed; CRUD smoke passed
+Rollback result: passed without rebuilding source
+Cleanup: Compose container and network removed successfully
+```
 
 Remote verification still required:
 
 - Confirm pull-request runs skip registry authentication and publishing.
 - Confirm the package is linked to the repository and has the intended visibility.
-- Deploy a newer published version, then roll back to the recorded known-good tag and pass the same smoke tests.
+- Any deployment to a non-local host requires separate approval and verification.
+
+## M5 verification results
+
+The repository was reviewed from a recruiter's perspective for immediate project comprehension, evidence quality, reproducibility, architecture accuracy, security controls, operational guidance, limitations, and credible production evolution.
+
+Completed M5 documentation work:
+
+- Added a live CI badge linked to the real workflow; the badge returned HTTP 200 with SVG content.
+- Linked successful Actions run `41494769554` and the public GHCR package; all evidence URLs returned HTTP 200.
+- Reorganized the README around demonstrated engineering value, verified evidence, quick starts, delivery flow, security controls, limitations, troubleshooting, and repository navigation.
+- Corrected the architecture diagram and narrative to show the read-only pull-request path and the trusted `main` publishing path.
+- Converted the rollback plan into a verified two-version record while retaining safe repeat instructions.
+- Updated all milestone checklists without claiming screenshots, a license, or remote-host deployment.
+
+Commands executed locally on 2026-11-02:
+
+```powershell
+docker run --rm --volume "${PWD}:/repo:ro" --workdir /repo rhysd/actionlint:1.7.12 -color
+docker run --rm --volume "${PWD}:/mnt:ro" koalaman/shellcheck-alpine:v0.11.0 shellcheck /mnt/scripts/deploy.sh
+docker run --rm --volume "${PWD}:/mnt:ro" --workdir /mnt alpine:3.22 sh -n scripts/deploy.sh
+docker compose config --quiet
+docker run --rm --volume "${PWD}:/workspace" --workdir /workspace python:3.12-slim sh -c "python -m pip install --disable-pip-version-check --quiet -e '.[dev]' && python -m ruff check . && python -m ruff format --check . && python -m pytest"
+docker build --pull --tag deployflow-ci:local-m5 .
+docker run --rm deployflow-ci:local-m5 cat /etc/os-release
+docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.1 image --exit-code 1 --ignore-unfixed --scanners vuln --pkg-types os,library --severity HIGH,CRITICAL deployflow-ci:local-m5
+docker compose up --detach --no-build --force-recreate --wait --wait-timeout 60
+docker compose run --rm --no-deps --volume "${PWD}\scripts:/smoke:ro" --env DEPLOYFLOW_BASE_URL=http://api:8000 api python /smoke/smoke_test.py
+docker compose down
+```
+
+Verified results:
+
+```text
+actionlint 1.7.12: passed with no findings
+ShellCheck 0.11.0: passed with no findings
+POSIX shell syntax: passed
+Invalid or mutable image reference: rejected with exit code 2
+Default and explicit-image Compose configurations: valid
+Ruff lint: passed
+Ruff format check: 6 files already formatted
+pytest: 5 passed in 0.73s
+Docker build: passed
+Final local M5 image: sha256:ad9178170f3f5c197150f6bd760a87871252b4570e7678f29382c6dbf026815b
+Runtime base: Debian GNU/Linux 12 Bookworm
+Trivy 0.76.1: 0 HIGH, 0 CRITICAL OS or Python findings
+Container health and host health: passed
+CRUD smoke test: passed
+Runtime identity: UID 10001
+Runtime hardening: read-only root filesystem, no-new-privileges, all capabilities dropped, PID limit 100
+Compose shutdown: passed
+Local Markdown links: passed
+CI badge and external evidence links: HTTP 200
+```
+
+The M5 review found that the previous Dockerfile digest labeled as `slim-bookworm` actually resolved to the official Python `slim-trixie` image. The root cause was a digest/tag mismatch: Docker honors the digest even when the textual tag names another distribution. The pin was corrected from `sha256:b18b261e...` to the verified `python:3.12.16-slim-bookworm` index `sha256:e697c818...`. The rebuilt image reports Bookworm and passed the blocking Trivy scan.
 
 ## Blockers
 
 - Host-native development still requires Python 3.12+ with the development dependencies installed. Container-based verification is available because Docker Desktop is running.
 - Trivy is not installed on the Windows host; the pinned containerized Trivy 0.76.1 scan passed locally.
 - GitHub CLI is optional for local development but would simplify authenticated repository and workflow inspection in later milestones.
-- A genuine rollback test is blocked because GHCR currently contains only the published `e35f6393d6be2157ab9efcfa3a2c0a6527364eb5` version. Publishing a second version requires separate approval.
 
 ## Next verification commands
 

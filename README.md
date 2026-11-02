@@ -1,26 +1,43 @@
 # DeployFlow
 
-DeployFlow is a recruiter-ready CI/CD portfolio project built around a minimal Task Management API. The application stays intentionally small so the engineering evidence is concentrated in automated tests, reproducible containers, security scanning, versioned image publishing, deployment smoke tests, and rollback.
+[![CI](https://github.com/mbeddi5232-oss/deployflow-cicd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mbeddi5232-oss/deployflow-cicd/actions/workflows/ci.yml)
 
-## Current scope
+DeployFlow is a production-minded CI/CD portfolio project built around a deliberately small FastAPI Task API. The application is simple; the engineering focus is the delivery system around it: automated quality gates, hardened containers, trusted publishing, explicit-version deployment, smoke testing, and verified rollback.
 
-M1 through M4 provide:
+## What This Project Demonstrates
 
-- A typed FastAPI service with OpenAPI documentation.
-- A `/health` endpoint for operational checks.
-- In-memory task CRUD endpoints.
-- Request validation and consistent HTTP status codes.
-- pytest API coverage and Ruff configuration.
-- A pinned, multi-stage container build with a non-root runtime user.
-- Docker Compose deployment with an application health check and runtime hardening.
-- Dependency-free health and CRUD smoke tests against the deployed container.
-- GitHub Actions CI for Ruff, pytest, container builds, and Trivy vulnerability scanning.
-- Trusted-branch GHCR publishing with immutable commit tags, explicit deployment, smoke verification, and rollback.
-- Architecture, milestone, and progress documentation.
+- Typed FastAPI health and task CRUD endpoints with isolated pytest coverage.
+- Ruff lint and formatting gates on every pull request and `main` push.
+- A pinned multi-stage Docker build with a non-root runtime.
+- Docker Compose health checks and runtime hardening.
+- Trivy enforcement for fixable `HIGH` and `CRITICAL` vulnerabilities.
+- Least-privilege GitHub Actions with full-SHA action pins.
+- GHCR publishing only from trusted `main` pushes after all gates pass.
+- Full-commit image tags, explicit deployment versions, and no `latest` tag.
+- Health and CRUD smoke tests after deployment.
+- A genuine two-image rollback verified locally without rebuilding source.
 
-Task data is process-local and is reset when the service restarts. Persistence is outside the MVP scope.
+## Verified Delivery Evidence
 
-## API
+Evidence is linked to live resources or recorded command output; no screenshots or results are fabricated.
+
+| Evidence | Verified result |
+| --- | --- |
+| [GitHub Actions run 41494769554](https://github.com/mbeddi5232-oss/deployflow-cicd/actions/runs/41494769554) | Ruff/pytest, container build/Trivy, and GHCR publishing jobs succeeded for commit `a7f2b2437c8eba0daa7a4ef29bac46301d7df848` |
+| [GHCR package](https://github.com/mbeddi5232-oss/deployflow-cicd/pkgs/container/deployflow-cicd) | Two anonymous-pullable, commit-tagged images with distinct digests and matching OCI revision labels |
+| Baseline image | `sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5` → `sha256:607995610eac0044361280e96296df68a472ef742718c83b9a6cfa03a25bd755` |
+| Candidate image | `sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848` → `sha256:d672768378b6d8e86863d2de634d76fed57b645860040c28f7a2b4711a343bac` |
+| Local rollback | Baseline → candidate → baseline; exact image, health, and complete CRUD smoke checks passed at every stage |
+
+The complete commands and raw result summaries are maintained in [docs/progress.md](docs/progress.md).
+
+## Architecture
+
+DeployFlow is a single-service modular monolith. GitHub Actions validates source and containers, publishes trusted commits to GHCR, and a deployment operator selects one immutable image version for Compose. The same deployment path is used for release and rollback.
+
+See [docs/architecture.md](docs/architecture.md) for the Mermaid delivery diagram, runtime design, and engineering decisions.
+
+## API Contract
 
 | Method | Path | Purpose |
 | --- | --- | --- |
@@ -31,29 +48,20 @@ Task data is process-local and is reset when the service restarts. Persistence i
 | `PUT` | `/tasks/{id}` | Replace a task |
 | `DELETE` | `/tasks/{id}` | Delete a task |
 
-Interactive API documentation is available at `/docs` while the service is running.
+Interactive OpenAPI documentation is available at `/docs` while the service is running.
 
-## Containerized deployment
+## Quick Start with Docker Compose
 
-Prerequisites: Docker Desktop or Docker Engine with Docker Compose.
-
-Validate, build, and start the service:
+Prerequisite: Docker Engine or Docker Desktop with Docker Compose.
 
 ```powershell
 docker compose config --quiet
 docker compose build --pull
 docker compose up --detach --wait --wait-timeout 60
-docker compose ps
+Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-The API is available at `http://127.0.0.1:8000`. Compose waits until `/health` returns the expected response. To use another host port:
-
-```powershell
-$env:DEPLOYFLOW_PORT = "8080"
-docker compose up --detach --wait --wait-timeout 60
-```
-
-Run health and full CRUD smoke tests without installing Python on the host:
+Run the full health and CRUD smoke test without installing Python on the host:
 
 ```powershell
 docker compose run --rm --no-deps `
@@ -62,23 +70,31 @@ docker compose run --rm --no-deps `
   api python /smoke/smoke_test.py
 ```
 
-The smoke test creates, lists, reads, updates, and deletes a task, verifies the final `404`, and removes its test data. Stop the local deployment with:
+Stop the deployment:
 
 ```powershell
 docker compose down
 ```
 
-For troubleshooting:
+Set `DEPLOYFLOW_PORT` before startup to use another loopback port.
 
-```powershell
-docker compose ps
-docker compose logs --tail 100 api
-docker compose config
+## Deploy a Published Version
+
+Deployments require an explicit full-commit GHCR tag. The script pulls the image, starts Compose with `--no-build`, waits for health, and runs the complete CRUD smoke test.
+
+```sh
+sh scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848
 ```
 
-If port 8000 is already in use, set `DEPLOYFLOW_PORT` before starting Compose. If dependencies or application code changed, rerun `docker compose build --pull` before `docker compose up`.
+Git for Windows can invoke its bundled shell directly:
 
-## Local development
+```powershell
+& "C:\Program Files\Git\bin\sh.exe" scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-a7f2b2437c8eba0daa7a4ef29bac46301d7df848
+```
+
+Rollback uses the identical command with the recorded known-good tag. See [docs/deployment.md](docs/deployment.md) for image verification, rollback evidence, authentication, and failure handling.
+
+## Local Python Development
 
 Prerequisites: Python 3.12+ and Git.
 
@@ -89,15 +105,7 @@ python -m venv .venv
 .\.venv\Scripts\python -m uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/docs` or check health:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-```
-
-On macOS or Linux, activate or invoke the virtual environment from `.venv/bin` instead.
-
-## Quality checks
+Quality checks:
 
 ```powershell
 .\.venv\Scripts\python -m ruff check .
@@ -105,61 +113,83 @@ On macOS or Linux, activate or invoke the virtual environment from `.venv/bin` i
 .\.venv\Scripts\python -m pytest
 ```
 
-Against any running service, execute the dependency-free smoke test with a local Python runtime:
+On macOS or Linux, invoke the equivalent executables from `.venv/bin`.
 
-```powershell
-.\.venv\Scripts\python scripts/smoke_test.py
-```
+## CI/CD Flow
 
-Set `DEPLOYFLOW_BASE_URL` to target a non-default host or port.
+The workflow runs on pull requests and pushes to `main`:
 
-## Continuous integration
+1. **Ruff and pytest** — installs development dependencies, verifies lint and formatting, and runs API tests.
+2. **Container build and Trivy scan** — builds the production Dockerfile and enforces the vulnerability policy.
+3. **Publish immutable GHCR image** — runs only for trusted `main` pushes after both previous jobs succeed, rescans the exact candidate, rejects tag reuse, and pushes one `sha-<full-commit>` tag.
 
-`.github/workflows/ci.yml` runs for every pull request and every push to `main`. It provides two ordered jobs:
+Pull requests never receive package write permission, authenticate to GHCR, or execute the publishing steps.
 
-1. `Ruff and pytest` installs the development dependencies, checks lint and formatting, and runs the API tests.
-2. `Container build and Trivy scan` builds a commit-tagged local image and scans it without logging in, publishing, or pushing.
+### Vulnerability Policy
 
-Workflow permissions default to `contents: read`. Checkout credentials are not persisted, jobs have explicit timeouts, duplicate runs are cancelled, and every external action is pinned to a full commit SHA. Only the trusted publishing job adds `packages: write`.
+Trivy 0.76.1 scans operating-system and Python packages. CI blocks fixable `HIGH` and `CRITICAL` findings and reports the scan in the job log. Unfixed findings are non-blocking for this MVP because no actionable patch exists; the policy must be reconsidered for a production release. `LOW`, `MEDIUM`, and `UNKNOWN` findings are outside the blocking gate.
 
-### Vulnerability policy
+## Security Controls
 
-Trivy 0.76.1 scans operating-system and Python package vulnerabilities in the final image. CI fails when a fixable `HIGH` or `CRITICAL` vulnerability is present. Unfixed findings do not block this MVP because no actionable upgrade exists, but they remain a maintenance concern and the policy should be reviewed before a production release. `LOW`, `MEDIUM`, and `UNKNOWN` findings are outside the blocking gate.
+| Area | Control |
+| --- | --- |
+| Workflow trust | Publishing is job-gated to pushes on `refs/heads/main`; pull requests remain read-only |
+| Permissions | Global `contents: read`; only the publish job adds `packages: write` |
+| Action integrity | Every external GitHub Action is pinned to a full commit SHA |
+| Credentials | Checkout credentials are not persisted; publishing uses the repository-scoped `GITHUB_TOKEN`; no project secret is required |
+| Image traceability | Full-commit tag plus OCI source and revision labels; existing or ambiguous tags fail closed |
+| Supply chain | Python base image pinned by digest; publish candidate scanned before push |
+| Runtime identity | Container runs as UID/GID `10001`, not root |
+| Runtime isolation | Read-only root filesystem, dropped capabilities, `no-new-privileges`, PID limit, constrained temporary filesystem |
+| Exposure | Compose binds the API to host loopback by default |
+| Verification | Application health check and full CRUD smoke test run after deployment and rollback |
 
-Pull requests build and scan images but never authenticate to GHCR. After quality and security jobs pass, a push to `main` may publish exactly one `sha-<full-commit>` tag. The publishing job scans the exact candidate again, refuses to overwrite an existing tag, and never creates `latest`.
+## Limitations and Production Evolution
 
-## Versioned deployment and rollback
+This is a CI/CD portfolio MVP, not a production task platform.
 
-Deployment requires an explicit GHCR commit tag:
+- Task state is in memory and is lost when the container is replaced.
+- The API has no authentication, authorization, rate limiting, or tenant isolation.
+- Compose provides a single local instance without zero-downtime orchestration.
+- TLS termination, DNS, monitoring, alerting, centralized logs, backups, and disaster recovery are not included.
+- Images are vulnerability-scanned but are not yet signed and no SBOM or provenance attestation is published.
+- Dependency ranges are constrained but there is no fully locked Python dependency file.
+
+A sensible production path is to add PostgreSQL with migrations and backups, API authentication and authorization, TLS through a managed ingress or reverse proxy, structured observability, environment approvals, signed images with SBOM/provenance, and a deployment platform selected from actual scale and availability requirements. Kubernetes is intentionally not introduced without those requirements.
+
+## Troubleshooting
+
+| Symptom | Check or resolution |
+| --- | --- |
+| Port 8000 is unavailable | Set `DEPLOYFLOW_PORT` before `docker compose up` |
+| Container is unhealthy | Run `docker compose ps` and `docker compose logs --tail 100 api` |
+| Compose model is invalid | Run `docker compose config` and inspect missing or malformed environment values |
+| GHCR pull is denied | Confirm package visibility or authenticate with a token that has `read:packages`; never store it in the repository |
+| Deployment script rejects an image | Use a lowercase GHCR reference with `sha-` followed by the full 40-character commit |
+| Git Bash rewrites container paths | Use the current stdin-based `scripts/deploy.sh`; it contains no smoke-test bind mount |
+| CI refuses an existing tag | The immutable tag already exists; investigate the prior run instead of overwriting it |
+| Smoke test fails | Inspect API logs, keep the failed version unaccepted, and redeploy the recorded known-good tag |
+
+## Repository Guide
 
 ```text
-ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-<40-character-commit>
+app/                    FastAPI application, models, and repository
+tests/                  pytest API contract tests
+scripts/smoke_test.py   dependency-free health and CRUD smoke test
+scripts/deploy.sh       immutable-image deployment and verification
+.github/workflows/      CI, security scan, and trusted GHCR publication
+Dockerfile              pinned multi-stage non-root image
+compose.yaml            health check and runtime hardening
+docs/architecture.md    system design and decisions
+docs/deployment.md      deployment, evidence checks, and rollback
+docs/progress.md        commands and verified results
+docs/tasks.md           milestone acceptance criteria
 ```
 
-On a Docker host, deploy and verify that version with:
+## Project Status
 
-```sh
-sh scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-<40-character-commit>
-```
-
-The script validates the reference, pulls it, recreates the service without building local source, waits for `/health`, and executes the complete CRUD smoke test. To roll back, run the same command with the last recorded known-good commit tag.
-
-See [docs/deployment.md](docs/deployment.md) for authentication, verification, failure handling, and the complete rollback procedure. No deployment uses `latest`.
-
-## Delivery roadmap
-
-- **M1:** API and automated tests.
-- **M2:** Dockerfile, Compose deployment, health checks, and local smoke tests.
-- **M3:** GitHub Actions for lint, tests, image build, and Trivy scanning.
-- **M4:** Versioned GHCR publishing, deployment, smoke tests, and rollback.
-- **M5:** Authentic screenshots, CI evidence, documentation review, and portfolio polish.
-
-Detailed acceptance criteria are in [docs/tasks.md](docs/tasks.md). The system design and decisions are in [docs/architecture.md](docs/architecture.md), and verified progress is recorded in [docs/progress.md](docs/progress.md).
-
-## Security
-
-Do not commit `.env` files, registry tokens, credentials, or private keys. The CI workflow uses read-only repository permissions and requires no project secrets. Publishing and remote deployment require explicit approval.
+M1 through M5 are implemented and locally verified. Portfolio evidence uses live links and reproducible command records without inventing screenshots or unsupported claims. See [docs/tasks.md](docs/tasks.md) for milestone status.
 
 ## License
 
-No license has been selected yet. All rights are reserved until a license file is added.
+No license has been selected. No license badge is displayed, and all rights remain reserved until a license file is added.
