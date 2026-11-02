@@ -4,7 +4,7 @@ DeployFlow is a recruiter-ready CI/CD portfolio project built around a minimal T
 
 ## Current scope
 
-M1 and M2 provide:
+M1 through M3 provide:
 
 - A typed FastAPI service with OpenAPI documentation.
 - A `/health` endpoint for operational checks.
@@ -14,6 +14,7 @@ M1 and M2 provide:
 - A pinned, multi-stage container build with a non-root runtime user.
 - Docker Compose deployment with an application health check and runtime hardening.
 - Dependency-free health and CRUD smoke tests against the deployed container.
+- GitHub Actions CI for Ruff, pytest, container builds, and Trivy vulnerability scanning.
 - Architecture, milestone, and progress documentation.
 
 Task data is process-local and is reset when the service restarts. Persistence is outside the MVP scope.
@@ -111,6 +112,21 @@ Against any running service, execute the dependency-free smoke test with a local
 
 Set `DEPLOYFLOW_BASE_URL` to target a non-default host or port.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs for every pull request and every push to `main`. It provides two ordered jobs:
+
+1. `Ruff and pytest` installs the development dependencies, checks lint and formatting, and runs the API tests.
+2. `Container build and Trivy scan` builds a commit-tagged local image and scans it without logging in, publishing, or pushing.
+
+Workflow permissions are limited to `contents: read`. Checkout credentials are not persisted, jobs have explicit timeouts, duplicate runs are cancelled, and every external action is pinned to a full commit SHA.
+
+### Vulnerability policy
+
+Trivy 0.76.1 scans operating-system and Python package vulnerabilities in the final image. CI fails when a fixable `HIGH` or `CRITICAL` vulnerability is present. Unfixed findings do not block this MVP because no actionable upgrade exists, but they remain a maintenance concern and the policy should be reviewed before a production release. `LOW`, `MEDIUM`, and `UNKNOWN` findings are outside the blocking gate.
+
+The workflow does not publish images. GHCR publication belongs to M4 and requires explicit approval.
+
 ## Delivery roadmap
 
 - **M1:** API and automated tests.
@@ -123,7 +139,7 @@ Detailed acceptance criteria are in [docs/tasks.md](docs/tasks.md). The system d
 
 ## Security
 
-Do not commit `.env` files, registry tokens, credentials, or private keys. Later GitHub workflows will use least-privilege permissions and GitHub-provided secrets. Publishing and remote deployment require explicit approval.
+Do not commit `.env` files, registry tokens, credentials, or private keys. The CI workflow uses read-only repository permissions and requires no project secrets. Publishing and remote deployment require explicit approval.
 
 ## License
 

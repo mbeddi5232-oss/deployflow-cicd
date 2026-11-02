@@ -19,7 +19,7 @@ flowchart LR
     User[API client] -->|HTTP /health and /tasks| API
 ```
 
-The local container build, Compose deployment, health check, and smoke-test path are implemented in M2. GitHub Actions, Trivy, GHCR publishing, and remote deployment remain target components for M3-M4.
+The local container build, Compose deployment, health check, and smoke-test path are implemented in M2. GitHub Actions quality checks, image builds, and Trivy scanning are implemented in M3. GHCR publishing and remote deployment remain target components for M4.
 
 ## Runtime Design
 
@@ -47,6 +47,14 @@ flowchart LR
 The Dockerfile uses a pinned Python 3.12.16 slim Bookworm image digest in both stages. The builder resolves and builds application wheels; the runtime installs only from that wheel set and does not contain source-control metadata, tests, documentation, or build tools.
 
 The runtime process uses UID/GID `10001`, not root. Compose binds the API only to host loopback, makes the root filesystem read-only, mounts a small temporary `/tmp`, drops all Linux capabilities, enables `no-new-privileges`, limits process count, and waits for an application-level health check.
+
+## Continuous Integration
+
+GitHub Actions runs on pull requests and pushes to `main`. The quality job executes Ruff lint, Ruff formatting verification, and pytest on Python 3.12. The container-security job runs only after quality succeeds, builds the same Dockerfile with a commit-specific local tag, and scans the resulting image with Trivy. No CI step authenticates to a registry or publishes an image.
+
+The workflow grants only `contents: read`, does not persist checkout credentials, and pins all external actions to immutable full commit SHAs. Fixed `ubuntu-24.04` runners, explicit tool versions, job timeouts, and concurrency cancellation reduce environmental drift and wasted runner time.
+
+Trivy scans OS and Python packages using vulnerability data available at workflow runtime. The gate fails for fixable `HIGH` or `CRITICAL` findings, ignores unfixed findings, and reports results in the job log. This policy prioritizes actionable release-blocking risk while keeping the MVP operational; it must be reconsidered before production use.
 
 ## Design Decisions
 

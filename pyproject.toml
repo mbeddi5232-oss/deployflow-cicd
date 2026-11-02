@@ -9,13 +9,13 @@ description = "A minimal task API used to demonstrate a production-minded CI/CD 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115,<0.116",
+    "fastapi>=0.162,<0.163",
     "uvicorn[standard]>=0.34,<0.35",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "httpx>=0.28,<0.29",
+    "httpx2>=2.16,<2.17",
     "pytest>=8.3,<9.0",
     "ruff>=0.11,<0.12",
 ]
