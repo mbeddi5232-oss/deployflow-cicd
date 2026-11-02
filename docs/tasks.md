@@ -14,12 +14,12 @@ Acceptance criteria: the API starts with Uvicorn, `/health` returns HTTP 200, CR
 
 ## M2 — Containerized local deployment
 
-- [ ] Add a small, non-root, production-oriented Dockerfile.
-- [ ] Add `.dockerignore`.
-- [ ] Add Docker Compose service configuration with a health check.
-- [ ] Build and start the service locally.
-- [ ] Execute health and CRUD smoke tests against the container.
-- [ ] Document local build, run, stop, and troubleshooting commands.
+- [x] Add a small, non-root, production-oriented Dockerfile.
+- [x] Add `.dockerignore`.
+- [x] Add Docker Compose service configuration with a health check.
+- [x] Build and start the service locally.
+- [x] Execute health and CRUD smoke tests against the container.
+- [x] Document local build, run, stop, and troubleshooting commands.
 
 Acceptance criteria: a clean checkout can run the API through Docker Compose and becomes healthy without a host Python installation.
 

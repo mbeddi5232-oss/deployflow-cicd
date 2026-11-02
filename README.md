@@ -4,13 +4,16 @@ DeployFlow is a recruiter-ready CI/CD portfolio project built around a minimal T
 
 ## Current scope
 
-M1 provides:
+M1 and M2 provide:
 
 - A typed FastAPI service with OpenAPI documentation.
 - A `/health` endpoint for operational checks.
 - In-memory task CRUD endpoints.
 - Request validation and consistent HTTP status codes.
 - pytest API coverage and Ruff configuration.
+- A pinned, multi-stage container build with a non-root runtime user.
+- Docker Compose deployment with an application health check and runtime hardening.
+- Dependency-free health and CRUD smoke tests against the deployed container.
 - Architecture, milestone, and progress documentation.
 
 Task data is process-local and is reset when the service restarts. Persistence is outside the MVP scope.
@@ -27,6 +30,51 @@ Task data is process-local and is reset when the service restarts. Persistence i
 | `DELETE` | `/tasks/{id}` | Delete a task |
 
 Interactive API documentation is available at `/docs` while the service is running.
+
+## Containerized deployment
+
+Prerequisites: Docker Desktop or Docker Engine with Docker Compose.
+
+Validate, build, and start the service:
+
+```powershell
+docker compose config --quiet
+docker compose build --pull
+docker compose up --detach --wait --wait-timeout 60
+docker compose ps
+```
+
+The API is available at `http://127.0.0.1:8000`. Compose waits until `/health` returns the expected response. To use another host port:
+
+```powershell
+$env:DEPLOYFLOW_PORT = "8080"
+docker compose up --detach --wait --wait-timeout 60
+```
+
+Run health and full CRUD smoke tests without installing Python on the host:
+
+```powershell
+docker compose run --rm --no-deps `
+  --volume "${PWD}\scripts:/smoke:ro" `
+  --env DEPLOYFLOW_BASE_URL=http://api:8000 `
+  api python /smoke/smoke_test.py
+```
+
+The smoke test creates, lists, reads, updates, and deletes a task, verifies the final `404`, and removes its test data. Stop the local deployment with:
+
+```powershell
+docker compose down
+```
+
+For troubleshooting:
+
+```powershell
+docker compose ps
+docker compose logs --tail 100 api
+docker compose config
+```
+
+If port 8000 is already in use, set `DEPLOYFLOW_PORT` before starting Compose. If dependencies or application code changed, rerun `docker compose build --pull` before `docker compose up`.
 
 ## Local development
 
@@ -55,7 +103,7 @@ On macOS or Linux, activate or invoke the virtual environment from `.venv/bin` i
 .\.venv\Scripts\python -m pytest
 ```
 
-Against a running service, execute the dependency-free health smoke test:
+Against any running service, execute the dependency-free smoke test with a local Python runtime:
 
 ```powershell
 .\.venv\Scripts\python scripts/smoke_test.py

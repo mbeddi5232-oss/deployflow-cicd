@@ -1,0 +1,33 @@
+services:
+  api:
+    image: deployflow-api:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEPLOYFLOW_PORT:-8000}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 100
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, urllib.request;
+          response = urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2);
+          assert response.status == 200;
+          assert json.load(response) == {'status': 'healthy'}
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    stop_grace_period: 10s

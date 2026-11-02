@@ -19,7 +19,7 @@ flowchart LR
     User[API client] -->|HTTP /health and /tasks| API
 ```
 
-The CI, registry, deployment, and smoke-test nodes describe the target architecture for M2-M4. In M1, the implemented runtime consists of the API and automated tests only.
+The local container build, Compose deployment, health check, and smoke-test path are implemented in M2. GitHub Actions, Trivy, GHCR publishing, and remote deployment remain target components for M3-M4.
 
 ## Runtime Design
 
@@ -31,6 +31,22 @@ The FastAPI process exposes:
 - `/docs` for generated OpenAPI documentation.
 
 Tasks are stored in a thread-safe in-memory repository. State is process-local and is lost when the process restarts. This is deliberate for the CI/CD MVP: it removes database operations from the critical path and keeps attention on build, verification, publishing, deployment, and rollback.
+
+## Container Runtime
+
+```mermaid
+flowchart LR
+    Source[Application source] --> Builder[Python 3.12 wheel builder]
+    Builder -->|offline wheel set| Runtime[Minimal runtime image]
+    Compose[Docker Compose] --> Runtime
+    Compose -->|health check| Health[GET /health]
+    Client[Host client] -->|127.0.0.1:8000| Runtime
+    Smoke[Ephemeral smoke container] -->|Compose network| Runtime
+```
+
+The Dockerfile uses a pinned Python 3.12.16 slim Bookworm image digest in both stages. The builder resolves and builds application wheels; the runtime installs only from that wheel set and does not contain source-control metadata, tests, documentation, or build tools.
+
+The runtime process uses UID/GID `10001`, not root. Compose binds the API only to host loopback, makes the root filesystem read-only, mounts a small temporary `/tmp`, drops all Linux capabilities, enables `no-new-privileges`, limits process count, and waits for an application-level health check.
 
 ## Design Decisions
 
@@ -53,6 +69,14 @@ Stored task models are immutable. Updates create a new value, reducing accidenta
 ### Versioned container images
 
 M4 will publish immutable version tags to GHCR. Deployments will reference an explicit tag so rollback means redeploying a previously verified image rather than rebuilding source.
+
+### Container health and smoke testing
+
+The Compose health check runs inside the application container using Python's standard library, so no shell utility such as curl is added to the production image. The external smoke test verifies health and the complete CRUD lifecycle through HTTP, then deletes its task so repeated runs remain isolated.
+
+### Runtime hardening
+
+The image defines the non-root identity; Compose supplies host-specific runtime restrictions. Keeping these concerns separate allows the same immutable image to run under stricter deployment policies later without rebuilding application code.
 
 ### Security boundary
 
