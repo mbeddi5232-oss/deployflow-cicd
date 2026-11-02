@@ -32,9 +32,8 @@ export DEPLOYFLOW_IMAGE="$image_ref"
 docker compose config --quiet
 docker compose pull api
 docker compose up --detach --no-build --force-recreate --wait --wait-timeout 60
-docker compose run --rm --no-deps \
-    --volume "$project_dir/scripts:/smoke:ro" \
+docker compose run --rm --no-deps --no-TTY \
     --env DEPLOYFLOW_BASE_URL=http://api:8000 \
-    api python /smoke/smoke_test.py
+    api python - < "$project_dir/scripts/smoke_test.py"
 
 echo "Deployment verified: $image_ref"

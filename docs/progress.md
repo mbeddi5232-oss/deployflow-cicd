@@ -4,7 +4,7 @@ Last updated: 2026-11-02
 
 ## Current status
 
-M1 through M3 are complete. M4 is implemented and locally verified; GHCR publication, a deployment from the registry, and rollback between published versions require an approved push and remote verification.
+M1 through M3 are complete. The M4 image is published and its exact commit tag has been pulled, deployed locally, and smoke-tested successfully. The deployment script is verified under Git for Windows and Linux shells. A genuine rollback test remains blocked until a second immutable version is published with approval.
 
 ## Completed work
 
@@ -34,6 +34,7 @@ M1 through M3 are complete. M4 is implemented and locally verified; GHCR publica
 - Added full-commit `sha-<40-character-commit>` image tags, OCI source and revision labels, an exact-candidate Trivy scan, and fail-closed tag-reuse protection.
 - Added explicit image selection to Compose and a deployment script that pulls one immutable version, starts it with `--no-build`, waits for health, and runs the complete CRUD smoke test.
 - Documented GHCR access, version selection, deployment failure inspection, known-good version recording, and rollback without rebuilding source.
+- Removed host bind paths from the deployment smoke step by streaming the test source over standard input, resolving Git-for-Windows path conversion without adding a Linux-specific branch.
 
 ## Environment inspection
 
@@ -212,12 +213,70 @@ Compose shutdown: passed
 
 The explicit deployment test used a local image retagged with the required GHCR commit-reference format. It did not contact GHCR, publish an image, or perform a remote deployment.
 
-Remote verification still required after approval:
+### Published M4 artifact verification
+
+Commands executed locally on 2026-11-02 after the approved M4 push:
+
+```powershell
+docker pull ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+$tokenResponse = Invoke-RestMethod -UseBasicParsing -Uri "https://ghcr.io/token?service=ghcr.io&scope=repository%3Ambeddi5232-oss%2Fdeployflow-cicd%3Apull"
+$catalog = Invoke-RestMethod -UseBasicParsing -Headers @{ Authorization = "Bearer $($tokenResponse.token)" } -Uri "https://ghcr.io/v2/mbeddi5232-oss/deployflow-cicd/tags/list"
+$env:DEPLOYFLOW_IMAGE = "ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5"
+docker compose config --quiet
+docker compose pull api
+docker compose up --detach --no-build --force-recreate --wait --wait-timeout 60
+Invoke-RestMethod -UseBasicParsing http://127.0.0.1:8000/health
+docker compose run --rm --no-deps --volume "${PWD}\scripts:/smoke:ro" --env DEPLOYFLOW_BASE_URL=http://api:8000 api python /smoke/smoke_test.py
+$containerId = docker compose ps --quiet api
+docker inspect $containerId --format "{{.Config.Image}} {{.State.Health.Status}}"
+docker compose down
+```
+
+Verified results:
+
+```text
+Anonymous GHCR pull: passed
+Published tag: sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+Registry digest: sha256:607995610eac0044361280e96296df68a472ef742718c83b9a6cfa03a25bd755
+GHCR tag catalog: exactly one tag, matching the requested commit
+Compose deployment: exact published tag running and healthy
+Host health request: status=healthy
+Health and CRUD smoke test: passed
+Compose shutdown: passed
+Rollback: not executed because no second published version exists
+```
+
+The original deployment script could not complete under Git for Windows because MSYS rewrote the container path `/smoke/smoke_test.py`; suppressing that rewrite then left the Git-Bash bind source unavailable to Docker. The script was corrected by streaming `scripts/smoke_test.py` to `python -` over standard input, removing both path-sensitive arguments.
+
+### Cross-platform deployment script verification
+
+Commands executed locally on 2026-11-02:
+
+```powershell
+docker run --rm --volume "${PWD}:/mnt:ro" koalaman/shellcheck-alpine:v0.11.0 shellcheck /mnt/scripts/deploy.sh
+docker run --rm --volume "${PWD}:/mnt:ro" --workdir /mnt alpine:3.22 sh -n scripts/deploy.sh
+& "C:\Program Files\Git\bin\sh.exe" scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock --volume "${PWD}:/project:ro" --workdir /project docker:29-cli sh scripts/deploy.sh ghcr.io/mbeddi5232-oss/deployflow-cicd:sha-e35f6393d6be2157ab9efcfa3a2c0a6527364eb5
+```
+
+Verified results:
+
+```text
+ShellCheck 0.11.0: passed with no findings
+POSIX shell syntax: passed
+Invalid or mutable reference: rejected with exit code 2
+Git-for-Windows deployment: healthy; health and CRUD smoke tests passed
+Linux-shell deployment: healthy; health and CRUD smoke tests passed
+Both deployments used the exact published e35f639 commit tag
+Both Compose projects were removed successfully after verification
+```
+
+The two-version rollback procedure is documented in `docs/deployment.md`. It requires a separately approved commit and trusted GHCR publication, matching OCI revision labels, and two distinct registry digests. No second image was published and no rollback was executed during this work.
+
+Remote verification still required:
 
 - Confirm pull-request runs skip registry authentication and publishing.
-- Confirm a successful trusted `main` run publishes exactly one full-commit tag.
 - Confirm the package is linked to the repository and has the intended visibility.
-- Pull the published tag on a deployment host and pass health and CRUD smoke tests.
 - Deploy a newer published version, then roll back to the recorded known-good tag and pass the same smoke tests.
 
 ## Blockers
@@ -225,7 +284,7 @@ Remote verification still required after approval:
 - Host-native development still requires Python 3.12+ with the development dependencies installed. Container-based verification is available because Docker Desktop is running.
 - Trivy is not installed on the Windows host; the pinned containerized Trivy 0.76.1 scan passed locally.
 - GitHub CLI is optional for local development but would simplify authenticated repository and workflow inspection in later milestones.
-- M4 GitHub-hosted publishing and deployment verification remain pending until the user approves a push and remote actions.
+- A genuine rollback test is blocked because GHCR currently contains only the published `e35f6393d6be2157ab9efcfa3a2c0a6527364eb5` version. Publishing a second version requires separate approval.
 
 ## Next verification commands
 
